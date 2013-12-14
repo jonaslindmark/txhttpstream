@@ -1,6 +1,7 @@
 from twisted.web import client
 from twisted.internet import reactor, defer
 from urlparse import urlparse
+from collections import deque
 
 
 class StreamFinished(Exception):
@@ -12,7 +13,7 @@ class StreamedHTTPGetter(client.HTTPPageGetter):
         self._intercept = False
         self._delimiter = delimiter
         self._read_index = 0
-        self._chunks = []
+        self._chunks = deque()
         self._streamed_buffer = ""
         self._finished = False
         self._chunkReadyDeferred = defer.Deferred()
@@ -22,10 +23,10 @@ class StreamedHTTPGetter(client.HTTPPageGetter):
         chunks[0] = self._streamed_buffer + chunks[0]
         self._streamed_buffer = ""
         if data.endswith(self._delimiter):
-            self._chunks = self._chunks + chunks[:-1]
+            self._chunks.extend(chunks[:-1])
         else:
             self._streamed_buffer = chunks[len(chunks)-1]
-            self._chunks = self._chunks + chunks[:-1]
+            self._chunks.extend(chunks[:-1])
 
         d, self._chunkReadyDeferred =  self._chunkReadyDeferred, defer.Deferred()
         d.callback(None)
@@ -45,12 +46,12 @@ class StreamedHTTPGetter(client.HTTPPageGetter):
         self._chunkReadyDeferred.callback(None)
 
     def _getNextChunkByIndex(self, index):
-        if index >= len(self._chunks):
+        if len(self._chunks) == 0:
             if self._finished:
                 return defer.fail(StreamFinished())
             return self._chunkReadyDeferred.addCallback(lambda ign: self._getNextChunkByIndex(index))
         else:
-            chunk = self._chunks[index]
+            chunk = self._chunks.popleft()
             return defer.succeed(chunk)
 
     def getNextChunk(self):
